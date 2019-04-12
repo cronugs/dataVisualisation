@@ -13,6 +13,11 @@ function makeGraphs(error, salaryData) {
     //we pass our salaryData into crossfilter and call it ndx. 
     var ndx = crossfilter(salaryData);
 
+    //The salary data is not rendering because it is being treated as a string. We need to loop over it and converty the values to int.
+    salaryData.forEach(function(d) {
+        d.salary = parseInt(d.salary);
+    })
+
     //call the discipline selector
     show_discipline_selector(ndx);
 
@@ -20,8 +25,10 @@ function makeGraphs(error, salaryData) {
     //and we pass in ndx (our crossfilter data).
     show_gender_balance(ndx);
 
-    //call the show_average_salaries function again passing out crossfilter data in (ndx).
+    //call the show_average_salaries and rank distribution functions, again passing in the crossfilter data (ndx).
     show_average_salaries(ndx);
+
+    show_rank_distribution(ndx);
 
     //call the dc function to render charts
     dc.renderAll();
@@ -118,15 +125,124 @@ function show_average_salaries(ndx) {
         .group(averageSalaryByGender)
         //because we used a custom reducer we need to use a valueAccessor, because the value being plotted here is the value created in
         //the initialise function of our custom reducer. The value actually has a count a total and an average. So we need to write
-        //a valueAccessor to specify which of those values gets plotted. We want the average.
+        //a valueAccessor to specify which of those values gets plotted. We want the average. We use toFixed(2) to limit to 2 decimals
         .valueAccessor(function(d) {
-            return d.value.average;
+            return d.value.average.toFixed(2);
         })
         .transitionDuration(500)
         .x(d3.scale.ordinal())
         .xUnits(dc.units.ordinal)
         .elasticY(true)
-        xAxisLabel("Gender")
-        yAxix().ticks(4);
+        .xAxisLabel("Gender")
+        .yAxis().ticks(4);
+}
+
+function show_rank_distribution(ndx) {
+    //pluck our dimension and put it in dim
+    
+    //make a group
+    /* var profByGender = dim.group().reduce(
+        //here p is the accumulator to keep track of the number of values. v is the individual values being added
+        function(p, v) {
+            //so in total we will always increment
+            p.total++;
+            //but we will only increment match is the rank of the data is professor
+            if(v.rank == "Prof") {
+                p.match++;
+            }
+            return p;
+        },
+        //the remove function also takes p and v
+        function(p, v) {
+            //remove being the opposite, we will allways decrement our total.
+            p.total--;
+            //we will only decrement match if the rank matches "Prof"
+            if(v.rank == "Prof") {
+                p.match--;
+            }
+            return p;
+        },
+        //the initialise function takes no argument, it creates the data structure that will be threaded through the calls to add and 
+        //remove items.
+        //our initialise functions data structure will contain total; will be a count of the number of rows we are dealing with.
+        //match will be a count of how many of those rows are professsors.
+        function () {
+            return {total: 0, match: 0};
+        }      
+    ); */
+
+    //We could do the same thing for each rank, and basically use the same code; call reduce() and write two more reduce functions. But
+    //given that the code is so similar, there is probably a better way to deal with it. Instead of duplicating all that code, we will
+    //create a function here called rankByGender, where we pass in a dimension and we pass in the rank we are interested in using for 
+    //the reduse. We will call this function for each rank, Prof, asstProf, and assocProc. 
+
+    //We will create the rankByGender method and use these three lines instead of duplicating the code above. We will code it in the 
+    //show_rank_distribution function because it has no real relevance outside this function. It is a nested function.
+
+    //rankByGender will take two argument; the dimension we are grouping on, and the rank we are looking for
+
+    function rankByGender (dimension, rank) {
+        //here we are taking the reduce function we created previously (now commented out above) and return it from this function. We 
+        //generalise the function a bit by changing the references to "Prof" to the rank variable. We also change the dim being used 
+        //by group to match the dimesion being passed in as an argument.
+        return dimension.group().reduce(
+            function(p, v) {
+                p.total++;
+                if(v.rank == rank) {
+                    p.match++;
+                }
+                return p;
+            },
+            function(p, v) {
+                p.total--;
+                if(v.rank == rank) {
+                    p.match--;
+                }
+                return p;
+            },
+            function () {
+                return {total: 0, match: 0};
+            }      
+        );
+    }
+    
+    var dim = ndx.dimension(dc.pluck('sex'));
+
+    var profByGender = rankByGender(dim, "Prof");
+    var asstProfByGender = rankByGender(dim, "AsstProf");
+    var assocProfByGender = rankByGender(dim, "AssocProf");
+
+    //now we create a stacked bar chart to display the data
+
+    dc.barChart("#rank-distribution")
+        .width(400)
+        .height(300)
+        .dimension(dim)
+        //first group
+        .group(profByGender, "Prof")
+        //followed by stacked groups
+        .stack(asstProfByGender, "Asst Prof")
+        .stack(assocProfByGender, "Assoc Prof")
+        //we need to use a valueAccessor because we used a custom reducer for this chart.
+        //The total value of the data structure is the total number of men or women found.
+        //The match is the number of those that match a rank "prof" "asstProf" etc.
+        //What we need to do for each value we are plotting is find what percentage of the total is the match. We do that by dividing
+        //the match by the total and multiply by 100.
+
+        //Note; We could have put this calculation into the custom reducer as a third property in the data structure created by the 
+        //initialise function. 
+        .valueAccessor(function (d) {
+            if(d.value.total > 0) {
+                return (d.value.match / d.value.total) * 100;
+            } else {
+                return 0;
+            }
+        })
+        .x(d3.scale.ordinal())
+        .xUnits(dc.units.ordinal)
+        .legend(dc.legend().x(320).y(20).itemHeight(15).gap(5))
+        //we can use the margins of the chart to make room for the legend. notice the larger than usual right margin.
+        .margins({top:10, right:100, bottom:30, left: 30});
+
 }
 
