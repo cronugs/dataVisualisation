@@ -16,10 +16,15 @@ function makeGraphs(error, salaryData) {
     //The salary data is not rendering because it is being treated as a string. We need to loop over it and converty the values to int.
     salaryData.forEach(function(d) {
         d.salary = parseInt(d.salary);
+        d.yrs_service = parseInt(d["yrs.service"]);
     })
 
     //call the discipline selector
     show_discipline_selector(ndx);
+
+    //*out of step* - create a function to calculate the % of men and women professors
+    show_percent_that_are_professors(ndx, "Female", "#percent-of-women-proffessors");
+    show_percent_that_are_professors(ndx, "Male", "#percent-of-men-proffessors");
 
     //we pass the ndx crossfilter data to the function that is going to draw the graph. We can call this anything. show_gender_balance
     //and we pass in ndx (our crossfilter data).
@@ -29,6 +34,9 @@ function makeGraphs(error, salaryData) {
     show_average_salaries(ndx);
 
     show_rank_distribution(ndx);
+
+    //*out of step* - function call to display years of service to salary correlation.
+    show_service_to_salary_correlation(ndx);
 
     //call the dc function to render charts
     dc.renderAll();
@@ -47,6 +55,43 @@ function show_discipline_selector(ndx) {
         .dimension(dim)
         .group(group);
 
+}
+
+function show_percent_that_are_professors(ndx, gender, element) {
+    var percentageThatAreProffessors = ndx.groupAll().reduce(
+        function (p, v) {
+            if (v.sex === gender) {
+                p.count++;
+                if (v.rank === "Prof") {
+                    p.are_prof++;
+                }
+            }
+            return p;
+        },
+        function (p, v) {
+            if (v.sex === gender) {
+                p.count--;
+                if (v.rank === "Prof") {
+                    p.are_prof--;
+                }
+            }
+            return p;
+        },
+        function () {
+            return {count: 0, are_prof: 0};
+        }
+    )
+
+    dc.numberDisplay(element)
+        .formatNumber(d3.format(".2%"))
+        .valueAccessor(function (d) {
+            if(d.count == 0) {
+                return 0;
+            } else {
+                return (d.are_prof / d.count);
+            }
+        })
+        .group(percentageThatAreProffessors);
 }
 
 //Now we write the function that will draw the graph. Each graph will have its own function.
@@ -243,6 +288,44 @@ function show_rank_distribution(ndx) {
         .legend(dc.legend().x(320).y(20).itemHeight(15).gap(5))
         //we can use the margins of the chart to make room for the legend. notice the larger than usual right margin.
         .margins({top:10, right:100, bottom:30, left: 30});
+
+}
+
+function show_service_to_salary_correlation(ndx) {
+
+    var genderColors = d3.scale.ordinal()
+        .domain(["Female", "Male"])
+        .range(["orange", "green"]);
+
+    var eDim = ndx.dimension(dc.pluck("yrs_service"));
+    var experienceDim = ndx.dimension(function(d) {
+        return [d.yrs_service, d.salary, d.rank, d.sex];
+    });
+    var experienceSalaryGroup = experienceDim.group();
+
+    var minExperience = eDim.bottom(1)[0].yrs_service;    
+    var maxExperience = eDim.top(1)[0].yrs_service;
+
+    dc.scatterPlot("#service-salary")
+        .width(800)
+        .height(400)
+        .x(d3.scale.linear().domain([minExperience, maxExperience]))
+        .brushOn(false)
+        .symbolSize(8)
+        .clipPadding(10)
+        .yAxisLabel("Salary")
+        .xAxisLabel("Years of Service")
+        .title(function(d) {
+            return d.key[2] + " earned " + d.key[1];
+        })
+        .colorAccessor(function(d){
+            return d.key[3];
+        })
+        .colors(genderColors)
+        .dimension(experienceDim)
+        .group(experienceSalaryGroup)
+        .margins({top: 10, right: 50, bottom: 75, left:75});
+    
 
 }
 
